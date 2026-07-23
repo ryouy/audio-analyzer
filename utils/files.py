@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -52,24 +53,76 @@ def convert_to_wav(source: Path, destination: Path, sample_rate: int) -> Path:
     return destination
 
 
-def download_youtube(url: str, destination: Path) -> Path:
-    """Download public media as WAV through yt-dlp."""
-    normalized_url = normalize_url_input(url)
+def _deno_executable() -> str | None:
+    """Locate Deno installed directly or through the Python deno package."""
+    executable = shutil.which("deno")
+    if executable:
+        return executable
+    try:
+        import deno
+
+        return str(deno.find_deno_bin())
+    except (ImportError, OSError, AttributeError, RuntimeError):
+        return None
+
+
+def build_youtube_command(
+    url: str,
+    destination: Path,
+    *,
+    impersonate: bool = False,
+) -> list[str]:
+    """Build a yt-dlp command with the current YouTube EJS requirements."""
     command = [
         sys.executable, "-m", "yt_dlp", "-x", "--audio-format", "wav",
         "--audio-quality", "0", "--force-overwrites", "--no-playlist",
-        "--socket-timeout", "30", "-o", str(destination), normalized_url,
+        "--socket-timeout", "30",
     ]
-    completed = subprocess.run(
+    deno_path = _deno_executable()
+    if deno_path:
+        command.extend(["--js-runtimes", f"deno:{deno_path}"])
+    if impersonate:
+        command.extend(["--impersonate", "chrome"])
+    command.extend(["-o", str(destination), normalize_url_input(url)])
+    return command
+
+
+def _run_youtube_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run one bounded yt-dlp attempt."""
+    return subprocess.run(
         command,
         check=False,
         capture_output=True,
         text=True,
         timeout=1800,
     )
+
+
+def download_youtube(url: str, destination: Path) -> Path:
+    """Download public media as WAV through yt-dlp with one 403 fallback."""
+    normalized_url = normalize_url_input(url)
+    command = build_youtube_command(normalized_url, destination)
+    completed = _run_youtube_command(command)
+    first_details = (completed.stderr or completed.stdout or "").strip()
+    if completed.returncode != 0 and (
+        "HTTP Error 403" in first_details or "Forbidden" in first_details
+    ):
+        completed = _run_youtube_command(
+            build_youtube_command(normalized_url, destination, impersonate=True)
+        )
     if completed.returncode != 0:
         details = (completed.stderr or completed.stdout or "").strip()
         details = "\n".join(details.splitlines()[-8:])
+        if "No supported JavaScript runtime" in details:
+            details += (
+                "\nDenoが見つかりません。requirements.txtからdenoを"
+                "インストールして再デプロイしてください。"
+            )
+        if "HTTP Error 403" in details or "Sign in to confirm" in details:
+            details += (
+                "\nStreamlit Cloudの共有IPがYouTubeに拒否されている可能性があります。"
+                "この場合はファイルアップロードを利用してください。"
+            )
         raise RuntimeError(
             "YouTube音声の取得に失敗しました。"
             + (f"\nyt-dlp: {details}" if details else "")

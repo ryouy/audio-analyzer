@@ -19,6 +19,11 @@ streamlit run app.py
 CPUでは`tiny`または`base`と「高速」モードを推奨します。CUDA対応PyTorchが利用可能な場合、
 faster-whisperはGPUを自動利用します。
 
+YouTube取得には現在のyt-dlp要件に従い、`yt-dlp-ejs`、Deno 2.3以上、`curl_cffi`を
+`requirements.txt`から導入します。403の場合はブラウザ偽装付きで1回再試行します。
+Streamlit Community Cloudの共有IP自体がYouTubeに拒否された場合は回避できないため、
+その場合はファイルアップロードを利用してください。
+
 Dockerの場合:
 
 ```bash
