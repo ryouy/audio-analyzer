@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 from functools import lru_cache
 from pathlib import Path
 
@@ -15,6 +16,12 @@ def _load_model(model_size: str, device: str, compute_type: str):
     from faster_whisper import WhisperModel
 
     return WhisperModel(model_size, device=device, compute_type=compute_type)
+
+
+def clear_model_cache() -> None:
+    """Release cached Whisper weights after a memory-constrained job."""
+    _load_model.cache_clear()
+    gc.collect()
 
 
 def transcribe_audio(

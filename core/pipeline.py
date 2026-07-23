@@ -17,7 +17,7 @@ from services.insight_analyzers import (
     detect_highlights,
 )
 from services.text_processor import analyze_text
-from services.transcriber import transcribe_audio
+from services.transcriber import clear_model_cache, transcribe_audio
 
 ProgressCallback = Callable[[float, str], None]
 
@@ -56,10 +56,14 @@ def run_pipeline(
 
     if "transcription" in settings.enabled:
         def transcription() -> None:
-            segments, language, probability = transcribe_audio(wav_path, settings)
-            result.segments, result.language, result.language_probability = (
-                segments, language, probability
-            )
+            try:
+                segments, language, probability = transcribe_audio(wav_path, settings)
+                result.segments, result.language, result.language_probability = (
+                    segments, language, probability
+                )
+            finally:
+                if settings.fast_mode:
+                    clear_model_cache()
         stage("文字起こし", 0.36, "Whisperで文字起こししています", transcription)
 
     if result.segments and "diarization" in settings.enabled:

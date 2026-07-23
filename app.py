@@ -155,7 +155,9 @@ def execute(input_mode: str, source: object, settings: AnalysisSettings, hf_toke
         )
         st.session_state.result = result
         st.session_state.analysis_settings = settings
-        st.session_state.analysis_cache[cache_key] = result
+        # Analysis results contain audio features and embeddings. Retaining several
+        # jobs can exceed the Community Cloud memory limit.
+        st.session_state.analysis_cache = {cache_key: result}
         status.success("解析が完了しました")
     except Exception as exc:
         st.error(f"入力処理に失敗しました: {type(exc).__name__}: {exc}")
@@ -611,14 +613,16 @@ if result is None:
 else:
     if result.features and result.features.duration > 7200:
         st.warning("120分を超える長時間音声です。処理時間とメモリ使用量にご注意ください。")
-    tabs = st.tabs([
+    page_names = [
         "概要", "音響", "文字起こし", "話者・感情", "キーワード",
         "トピック・クラスタ", "ハイライト", "意味検索", "エクスポート",
-    ])
+    ]
     renderers = [
         overview_tab, audio_tab, transcript_tab, speakers_emotions_tab,
         keywords_tab, topics_tab, highlights_tab, search_tab, export_tab,
     ]
-    for tab, renderer in zip(tabs, renderers):
-        with tab:
-            renderer(result)
+    selected_page = st.radio(
+        "表示ページ", page_names, horizontal=True,
+        label_visibility="collapsed", key="analysis_page",
+    )
+    dict(zip(page_names, renderers))[selected_page](result)

@@ -82,14 +82,20 @@ def analyze_text(
                 })
 
     texts = [segment.text for segment in segments]
-    try:
-        model = load_embedding_model()
-        embeddings = np.asarray(model.encode(texts, normalize_embeddings=True))
-    except Exception:
+    if settings.fast_mode:
         vectorizer = TfidfVectorizer(
             analyzer="char_wb", ngram_range=(2, 4), max_features=1024
         )
         embeddings = normalize(vectorizer.fit_transform(texts)).toarray()
+    else:
+        try:
+            model = load_embedding_model()
+            embeddings = np.asarray(model.encode(texts, normalize_embeddings=True))
+        except Exception:
+            vectorizer = TfidfVectorizer(
+                analyzer="char_wb", ngram_range=(2, 4), max_features=1024
+            )
+            embeddings = normalize(vectorizer.fit_transform(texts)).toarray()
 
     count = len(texts)
     if count < 3:
