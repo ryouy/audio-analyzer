@@ -1,4 +1,5 @@
 from utils.timecode import format_timecode, youtube_timecode
+from utils.files import normalize_url_input
 
 
 def test_format_timecode() -> None:
@@ -10,3 +11,10 @@ def test_format_timecode() -> None:
 def test_youtube_timecode() -> None:
     assert youtube_timecode(65) == "1:05"
     assert youtube_timecode(3665) == "1:01:05"
+
+
+def test_normalize_markdown_url() -> None:
+    url = "https://www.youtube.com/watch?v=bch25Ieqxwk&pp=test"
+    assert normalize_url_input(f"[{url}]({url})") == url
+    assert normalize_url_input(f"<{url}>") == url
+    assert normalize_url_input(url) == url
