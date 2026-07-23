@@ -33,11 +33,14 @@ def analyze_audio(
     spectrogram_parts: list[np.ndarray] = []
     spectrogram_frame_parts: list[np.ndarray] = []
     entropy_parts: list[np.ndarray] = []
+    pitch_parts: list[np.ndarray] = []
+    rms_parts: list[np.ndarray] = []
+    onset_parts: list[np.ndarray] = []
     frame_offset = 0
 
     # A full STFT of a long recording can occupy hundreds of MB. Build it in
     # bounded chunks and retain only the resolution needed by the charts.
-    chunk_samples = max(n_fft, sr * (60 if settings.fast_mode else 300))
+    chunk_samples = max(n_fft, sr * (20 if settings.fast_mode else 300))
     for start in range(0, len(y), chunk_samples):
         chunk = y[start : start + chunk_samples]
         stft_chunk = librosa.stft(chunk, n_fft=n_fft, hop_length=hop)
@@ -71,7 +74,43 @@ def analyze_audio(
         frame_offset += power.shape[1]
         del power, power_sum, reduced_power
 
+        rms_parts.append(
+            librosa.feature.rms(
+                y=chunk, frame_length=n_fft, hop_length=hop
+            )[0].astype(np.float32, copy=False)
+        )
+        onset_parts.append(
+            librosa.onset.onset_strength(
+                y=chunk, sr=sr, hop_length=hop
+            ).astype(np.float32, copy=False)
+        )
+        try:
+            if settings.fast_mode:
+                chunk_pitch = librosa.yin(
+                    chunk,
+                    fmin=librosa.note_to_hz("C2"),
+                    fmax=librosa.note_to_hz("C7"),
+                    sr=sr,
+                    frame_length=n_fft,
+                    hop_length=hop,
+                )
+            else:
+                chunk_pitch, _, _ = librosa.pyin(
+                    chunk,
+                    fmin=librosa.note_to_hz("C2"),
+                    fmax=librosa.note_to_hz("C7"),
+                    sr=sr,
+                    frame_length=n_fft,
+                    hop_length=hop,
+                )
+        except Exception:
+            chunk_pitch = np.full(len(rms_parts[-1]), np.nan)
+        pitch_parts.append(np.asarray(chunk_pitch, dtype=np.float32))
+
     normalized_entropy = np.concatenate(entropy_parts)
+    pitch = np.concatenate(pitch_parts)
+    rms = np.concatenate(rms_parts)
+    onset = np.concatenate(onset_parts)
     spectrogram_db = np.concatenate(spectrogram_parts, axis=1)
     spectrogram_frames = np.concatenate(spectrogram_frame_parts)
     if spectrogram_db.shape[1] > 1000:
@@ -81,22 +120,15 @@ def analyze_audio(
         spectrogram_db = spectrogram_db[:, chart_indices]
         spectrogram_frames = spectrogram_frames[chart_indices]
     frame_count = len(normalized_entropy)
-    del entropy_parts, spectrogram_parts, spectrogram_frame_parts
+    del (
+        entropy_parts,
+        pitch_parts,
+        rms_parts,
+        onset_parts,
+        spectrogram_parts,
+        spectrogram_frame_parts,
+    )
     gc.collect()
-
-    try:
-        if settings.fast_mode:
-            pitch = librosa.yin(
-                y, fmin=librosa.note_to_hz("C2"), fmax=librosa.note_to_hz("C7"),
-                sr=sr, frame_length=n_fft, hop_length=hop,
-            )
-        else:
-            pitch, _, _ = librosa.pyin(
-                y, fmin=librosa.note_to_hz("C2"), fmax=librosa.note_to_hz("C7"),
-                sr=sr, frame_length=n_fft, hop_length=hop,
-            )
-    except Exception:
-        pitch = np.full(frame_count, np.nan)
 
     harmonic_path, percussive_path = output_dir / "harmonic.wav", output_dir / "percussive.wav"
     if settings.fast_mode:
@@ -111,25 +143,23 @@ def analyze_audio(
                 harmonic_file.write(harmonic)
                 percussive_file.write(percussive)
                 del harmonic, percussive
-        tempo_source = y
     else:
         harmonic, percussive = librosa.effects.hpss(y)
         sf.write(harmonic_path, harmonic, sr, subtype="PCM_16")
         sf.write(percussive_path, percussive, sr, subtype="PCM_16")
-        tempo_source = percussive
+        del harmonic, percussive
 
     tempo_result, beats = librosa.beat.beat_track(
-        y=tempo_source, sr=sr, hop_length=hop
+        onset_envelope=onset, sr=sr, hop_length=hop
     )
     tempo = float(np.asarray(tempo_result).reshape(-1)[0])
-    rms = librosa.feature.rms(y=y, frame_length=n_fft, hop_length=hop)[0]
     rms_times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop)
     peak_distance = max(1, int(settings.minimum_peak_interval_sec * sr / hop))
     peak_indices, _ = find_peaks(
         rms, height=settings.peak_threshold, distance=peak_distance
     )
 
-    fft_sample_count = min(len(y), sr * 300) if settings.fast_mode else len(y)
+    fft_sample_count = min(len(y), sr * 60) if settings.fast_mode else len(y)
     fft_source = y[:fft_sample_count]
     window = np.hanning(fft_sample_count).astype(np.float32)
     fft_values = np.abs(np.fft.rfft(fft_source * window)) / max(1, fft_sample_count)
@@ -138,8 +168,6 @@ def analyze_audio(
     frequencies = librosa.fft_frequencies(sr=sr, n_fft=n_fft)[
         ::spec_frequency_stride
     ]
-    onset = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
-
     # Keep interactive charts responsive for long recordings.
     stride = max(1, len(y) // 100_000)
     waveform = y[::stride]
@@ -153,7 +181,9 @@ def analyze_audio(
         rms=rms,
         rms_times=rms_times,
         pitch=pitch,
-        pitch_times=frame_times[: len(pitch)],
+        pitch_times=librosa.frames_to_time(
+            np.arange(len(pitch)), sr=sr, hop_length=hop
+        ),
         entropy=normalized_entropy,
         entropy_times=frame_times,
         beat_times=librosa.frames_to_time(beats, sr=sr, hop_length=hop),

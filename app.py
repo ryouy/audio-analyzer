@@ -65,7 +65,7 @@ def sidebar_settings() -> tuple[str, object, AnalysisSettings, str | None]:
     language_label = st.sidebar.selectbox("言語", ["日本語", "自動判定", "英語"])
     language = {"日本語": "ja", "自動判定": None, "英語": "en"}[language_label]
     model = st.sidebar.selectbox("Whisperモデル", ["tiny", "base", "small", "medium", "large-v3"])
-    sample_rate = st.sidebar.selectbox("サンプルレート", [16000, 22050, 44100], index=1)
+    sample_rate = st.sidebar.selectbox("サンプルレート", [16000, 22050, 44100], index=0)
     mode = st.sidebar.radio("処理モード", ["高速", "高精度"], horizontal=True)
 
     with st.sidebar.expander("有効にする機能", expanded=False):

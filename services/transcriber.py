@@ -30,8 +30,9 @@ def transcribe_audio(
 ) -> tuple[list[TranscriptSegment], str, float]:
     """Transcribe audio with faster-whisper and word timestamps."""
     try:
-        import torch
-        use_cuda = torch.cuda.is_available()
+        import ctranslate2
+
+        use_cuda = ctranslate2.get_cuda_device_count() > 0
     except Exception:
         use_cuda = False
     device, compute_type = ("cuda", "float16") if use_cuda else ("cpu", "int8")
