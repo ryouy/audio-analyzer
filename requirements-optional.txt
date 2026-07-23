@@ -1,0 +1,7 @@
+# Optional high-resource features
+pyannote.audio>=3.3,<5
+torch>=2.2
+transformers>=4.45
+bertopic>=0.16
+umap-learn>=0.5
+hdbscan>=0.8
